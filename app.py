@@ -3,10 +3,17 @@ from datetime import datetime, timedelta
 import requests
 from icalendar import Calendar
 import os
+import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 
+# 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Gestor Reservas Pro", page_icon="🏠")
 
-# --- CONFIGURAÇÃO ---
+# 2. LIGAÇÃO AO GOOGLE SHEETS
+# Nota: Configura o link da folha nos "Secrets" do Streamlit Cloud
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 3. DADOS DAS PROPRIEDADES
 PROPRIEDADES = {
     "Villa Emilly": {
         "icals": [
@@ -28,60 +35,54 @@ PROPRIEDADES = {
     }
 }
 
-DB_FILE = "reservas_manuais.csv"
-
-def verificar_disponibilidade(casa, checkin, checkout):
+# 4. FUNÇÃO DE VERIFICAÇÃO
+def verificar_disponibilidade(casa_sel, checkin, checkout):
     conflitos = []
     
-    # 1. Verificar iCals Online
-    for url in PROPRIEDADES[casa]["icals"]:
+    # A. Verificar iCals das plataformas
+    for url in PROPRIEDADES[casa_sel]["icals"]:
         try:
             response = requests.get(url, timeout=10)
             gcal = Calendar.from_ical(response.text)
             for component in gcal.walk():
                 if component.name == "VEVENT":
-                    # Extrair datas e garantir que são apenas 'date' e não 'datetime'
                     e_start = component.get('dtstart').dt
                     e_end = component.get('dtend').dt
-                    
                     if isinstance(e_start, datetime): e_start = e_start.date()
                     if isinstance(e_end, datetime): e_end = e_end.date()
                     
-                    # Testar sobreposição
                     if checkin < e_end and checkout > e_start:
                         resumo = str(component.get('summary'))
                         origem = "Booking" if "booking" in url else ("Airbnb" if "airbnb" in url else "VRBO")
                         conflitos.append(f"🔴 {origem}: {resumo} ({e_start} a {e_end})")
-        except Exception as e:
-            st.error(f"Erro ao ler link: {url[:30]}... -> {e}")
+        except: continue
 
-    # 2. Verificar Manuais
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f:
-            for line in f:
-                try:
-                    c, s, e = line.strip().split(",")
-                    if c == casa:
-                        s_d = datetime.strptime(s, "%Y-%m-%d").date()
-                        e_d = datetime.strptime(e, "%Y-%m-%d").date()
-                        if checkin < e_d and checkout > s_d:
-                            conflitos.append(f"📝 Manual: {s_d} a {e_d}")
-                except: continue
+    # B. Verificar no Google Sheets (Reservas Manuais)
+    try:
+        df = conn.read(ttl=0) # ttl=0 força a leitura de dados novos
+        if not df.empty:
+            for _, row in df.iterrows():
+                if str(row['casa']) == casa_sel:
+                    # Converter datas da folha para comparação
+                    s_d = pd.to_datetime(row['checkin']).date()
+                    e_d = pd.to_datetime(row['checkout']).date()
+                    if checkin < e_d and checkout > s_d:
+                        conflitos.append(f"📝 Google Sheets: Bloqueio Manual ({s_d} a {e_d})")
+    except Exception as e:
+        st.sidebar.warning("Ainda não existem reservas no Google Sheets.")
 
     return conflitos
 
-# --- INTERFACE ---
-st.title("🏨 Gestor de Reservas")
+# 5. INTERFACE
+st.title("🏨 Gestor de Reservas Cloud")
 casa = st.sidebar.selectbox("Propriedade", list(PROPRIEDADES.keys()))
 canal = st.sidebar.radio("Canal", ["Plataforma", "Direto / OLX"])
 
 col1, col2 = st.columns(2)
-# Garantimos que os inputs do Streamlit são tratados como objetos 'date'
 checkin_input = col1.date_input("Check-in", datetime.now().date())
 checkout_input = col2.date_input("Check-out", (datetime.now() + timedelta(days=7)).date())
 
 if st.button("Verificar Disponibilidade"):
-    # Passamos as datas para a função
     conflitos = verificar_disponibilidade(casa, checkin_input, checkout_input)
     
     if conflitos:
@@ -92,6 +93,7 @@ if st.button("Verificar Disponibilidade"):
         st.success("✅ Disponível!")
         noites = (checkout_input - checkin_input).days
         dados = PROPRIEDADES[casa]
+        
         if canal == "Direto / OLX":
             preco = dados["d_pico"] if checkin_input.month in [7,8] else dados["d_normal"]
             total = (noites/7) * preco
@@ -102,10 +104,29 @@ if st.button("Verificar Disponibilidade"):
         
         st.metric("Total da Estadia", f"{total:.2f} €")
 
+# 6. REGISTO NO GOOGLE SHEETS
 st.divider()
-with st.expander("Registar Bloqueio Manual (OLX/Direto)"):
-    if st.button("Bloquear estas datas"):
+with st.expander("📝 Registar Bloqueio Permanente"):
+    st.write("Isto guarda a reserva diretamente na tua folha de cálculo Google.")
+    if st.button("Confirmar e Gravar no Google Sheets"):
+        try:
+            # Ler dados atuais
+            df_atual = conn.read(ttl=0)
+            # Criar nova linha
+            nova_reserva = pd.DataFrame([{
+                "casa": casa, 
+                "checkin": str(checkin_input), 
+                "checkout": str(checkout_input)
+            }])
+            # Juntar e atualizar
+            df_final = pd.concat([df_atual, nova_reserva], ignore_index=True)
+            conn.update(data=df_final)
+            st.balloons()
+            st.success("Reserva gravada para sempre!")
+        except Exception as e:
+            st.error(f"Erro ao gravar: {e}. Verificaste os Secrets?")
         with open(DB_FILE, "a") as f:
             f.write(f"{casa},{checkin_input},{checkout_input}\n")
         st.success("Reserva manual registada!")
+
         
