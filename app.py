@@ -110,18 +110,27 @@ with st.expander("📝 Registar Bloqueio Permanente"):
     st.write("Isto guarda a reserva diretamente na tua folha de cálculo Google.")
     if st.button("Confirmar e Gravar no Google Sheets"):
         try:
-            # Ler dados atuais
-            df_atual = conn.read(ttl=0)
+            # Tentar ler dados existentes, se falhar, cria um DataFrame vazio
+            try:
+                df_atual = conn.read(ttl=0)
+            except:
+                df_atual = pd.DataFrame(columns=["casa", "checkin", "checkout"])
+            
             # Criar nova linha
             nova_reserva = pd.DataFrame([{
                 "casa": casa, 
                 "checkin": str(checkin_input), 
                 "checkout": str(checkout_input)
             }])
-            # Juntar e atualizar
-            df_final = pd.concat([df_atual, nova_reserva], ignore_index=True)
+            
+            # Limpar dados vazios e juntar
+            df_final = pd.concat([df_atual, nova_reserva], ignore_index=True).dropna(how='all')
+            
+            # Gravar
             conn.update(data=df_final)
-            st.balloons()
             st.success("Reserva gravada para sempre!")
+            st.balloons() # Os balões só aparecem se chegar aqui sem erro
         except Exception as e:
-            st.error(f"Erro ao gravar: {e}. Verificaste os Secrets?")
+            st.error(f"Erro técnico: {e}")
+            st.info("Verifica se a folha está Partilhada como EDITOR para qualquer pessoa com o link.")
+
