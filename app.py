@@ -4,19 +4,20 @@ import requests
 from icalendar import Calendar
 import pandas as pd
 
-# 1. CONFIGURAÇÃO
+# 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Gestor Villas Pro", page_icon="🏠")
 
 # LINK DO GOOGLE SHEETS
 SHEET_ID = "1Izx6YxFvOckGvtUpFMXehOFj2VH4tt1-QFBaLg35OgI"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 
-# 2. DADOS DAS PROPRIEDADES (Com Preços)
+# 2. DADOS DAS PROPRIEDADES (Calendários e Preços)
 PROPRIEDADES = {
     "Villa Emilly": {
         "icals": [
             "https://ical.booking.com/v1/export?t=41734955-cc72-4bd6-822f-5a11e335478f",
-            "https://www.airbnb.pt/calendar/ical/1201617111880855308.ics?t=1b9285d74bb64a769ae5ef2a43716f09"
+            "https://www.airbnb.pt/calendar/ical/1201617111880855308.ics?t=1b9285d74bb64a769ae5ef2a43716f09",
+            "http://www.vrbo.com/icalendar/8de0a01b8e354e54aea7e2c9a630d85a.ics"
         ],
         "p_noite": 350, "d_normal": 1500, "d_pico": 1700
     },
@@ -25,14 +26,17 @@ PROPRIEDADES = {
         "p_noite": 350, "d_normal": 1500, "d_pico": 1700
     },
     "Apartamento Onda Verde": {
-        "icals": ["https://www.airbnb.pt/calendar/ical/20960093.ics?t=2606be55c25c461f9f62f4582634f5e4"],
+        "icals": [
+            "https://www.airbnb.pt/calendar/ical/20960093.ics?t=2606be55c25c461f9f62f4582634f5e4",
+            "http://www.vrbo.com/icalendar/8de0a01b8e354e54aea7e2c9a630d85a.ics"
+        ],
         "p_noite": 260, "d_normal": 1300, "d_pico": 1600
     }
 }
 
 def verificar_disponibilidade(casa_sel, checkin, checkout):
     conflitos = []
-    # iCals
+    # iCals (Booking, Airbnb, VRBO)
     for url in PROPRIEDADES[casa_sel]["icals"]:
         try:
             res = requests.get(url, timeout=5)
@@ -43,11 +47,12 @@ def verificar_disponibilidade(casa_sel, checkin, checkout):
                 if isinstance(s, datetime): s = s.date()
                 if isinstance(e, datetime): e = e.date()
                 if checkin < e and checkout > s:
-                    origem = "Booking" if "booking" in url else "Airbnb"
+                    # Identificar a origem pelo link
+                    origem = "VRBO" if "vrbo" in url.lower() else ("Booking" if "booking" in url.lower() else "Airbnb")
                     conflitos.append(f"🔴 {origem}: {s} a {e}")
         except: continue
 
-    # Google Sheets
+    # Google Sheets (Reservas Manuais/OLX)
     try:
         df = pd.read_csv(SHEET_URL)
         for _, row in df.iterrows():
@@ -63,7 +68,7 @@ def verificar_disponibilidade(casa_sel, checkin, checkout):
 st.title("🏨 Gestor de Reservas")
 
 casa = st.sidebar.selectbox("Villas", list(PROPRIEDADES.keys()))
-canal = st.sidebar.radio("Tipo de Reserva", ["Plataforma (Booking/Airbnb)", "Direto / OLX"])
+canal = st.sidebar.radio("Tipo de Reserva", ["Plataforma (Booking/Airbnb/VRBO)", "Direto / OLX"])
 
 col1, col2 = st.columns(2)
 checkin_in = col1.date_input("Check-in", datetime.now().date())
@@ -83,7 +88,7 @@ if st.button("Verificar Disponibilidade e Preço"):
         dados = PROPRIEDADES[casa]
         
         if canal == "Direto / OLX":
-            # Se for Julho (7) ou Agosto (8), usa preço de pico
+            # Pico em Julho (7) e Agosto (8)
             preco_semana = dados["d_pico"] if checkin_in.month in [7, 8] else dados["d_normal"]
             total = (noites / 7) * preco_semana
             st.metric("Total Direto (Preço Semanal)", f"{total:.2f} €")
@@ -96,5 +101,7 @@ if st.button("Verificar Disponibilidade e Preço"):
 # 4. BLOQUEIO
 st.divider()
 st.write("### ⚠️ Como Bloquear Datas")
-st.link_button("Abrir Google Sheets para Gravar Bloqueio", f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit")
+st.write("Clica no botão abaixo para abrir a tua folha Google e registar manualmente a reserva:")
+st.link_button("Abrir Google Sheets", f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit")
+
 
