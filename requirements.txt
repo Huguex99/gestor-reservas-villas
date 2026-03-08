@@ -1,5 +1,5 @@
-streamlit
+streamlit>=1.28.0
 icalendar
 requests
-st-gsheets-connection
+st-gsheets-connection==0.0.3
 pandas
