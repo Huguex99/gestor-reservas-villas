@@ -1,3 +1,4 @@
 streamlit
 icalendar
 requests
+st-gsheets-connection
