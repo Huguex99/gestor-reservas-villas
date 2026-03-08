@@ -125,8 +125,3 @@ with st.expander("📝 Registar Bloqueio Permanente"):
             st.success("Reserva gravada para sempre!")
         except Exception as e:
             st.error(f"Erro ao gravar: {e}. Verificaste os Secrets?")
-        with open(DB_FILE, "a") as f:
-            f.write(f"{casa},{checkin_input},{checkout_input}\n")
-        st.success("Reserva manual registada!")
-
-        
