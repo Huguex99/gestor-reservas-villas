@@ -2,3 +2,4 @@ streamlit
 icalendar
 requests
 st-gsheets-connection
+pandas
